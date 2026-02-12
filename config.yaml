@@ -1,0 +1,72 @@
+# =============================================================================
+# Threads 自動投稿作成ツール 設定ファイル
+# =============================================================================
+# スプレッドシートIDは .env ファイルで管理することも可能です。
+# .env の値が優先されます。
+
+# --- 参考用スプレッドシート (読み込み元) ---
+source_sheet:
+  # スプレッドシートID (URLの /d/ と /edit の間の文字列)
+  # .env の SOURCE_SPREADSHEET_ID でも設定可能
+  spreadsheet_id: ""
+
+  # 読み込むシート名 (将来的に投稿種類ごとにシートを分ける場合はここを変更)
+  sheet_name: "Sheet1"
+
+  # 列マッピング (アルファベットで列を指定)
+  columns:
+    body: "A"      # 投稿本文
+    reply: "B"     # リプライ (連投) 文
+
+  # ヘッダー行 (1-indexed)
+  header_row: 1
+
+  # データ開始行 (1-indexed, ヘッダーの次の行)
+  data_start_row: 2
+
+# --- 自動投稿用スプレッドシート (転記先) ---
+dest_sheet:
+  # スプレッドシートID
+  # .env の DEST_SPREADSHEET_ID でも設定可能
+  spreadsheet_id: ""
+
+  # 書き込み先シート名
+  sheet_name: "Sheet1"
+
+  # 列マッピング (アルファベットで列を指定)
+  # 実際の転記先スプシの列構成に合わせて変更してください
+  columns:
+    body: "A"        # 投稿本文
+    reply: "B"       # リプライ文
+    status: "C"      # ステータス (自動で「未投稿」と記入)
+    created_at: "D"  # 生成日時
+
+  header_row: 1
+  data_start_row: 2
+
+# --- Claude API 設定 ---
+claude:
+  # APIキーは .env の ANTHROPIC_API_KEY で設定してください
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 2048
+  temperature: 0.8
+
+# --- 投稿生成設定 ---
+generation:
+  # 1回の実行で生成する投稿数
+  posts_per_run: 5
+
+  # 本文の最大文字数 (Threadsの制限: 500文字)
+  max_body_length: 500
+
+  # リプライの最大文字数
+  max_reply_length: 500
+
+  # カスタムプロンプトテンプレート (空の場合はデフォルトを使用)
+  # 使用可能な変数: {count}, {reference_posts}
+  prompt_template: ""
+
+# --- Google認証 ---
+# サービスアカウントの認証情報JSONファイルのパス
+# .env の GOOGLE_SERVICE_ACCOUNT_FILE でも設定可能
+google_service_account_file: "credentials/service_account.json"
