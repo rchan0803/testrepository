@@ -18,32 +18,37 @@ CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 @dataclass
 class SourceSheetConfig:
-    """参考用スプレッドシートの設定。"""
+    """参考用スプレッドシートの設定。
+
+    構成: A列=種別(投稿1/リプ1), B列=テキスト
+    2行で1セット（投稿行 + リプライ行）。
+    """
 
     spreadsheet_id: str = ""
-    sheet_name: str = "Sheet1"
+    sheet_name: str = "名言シート"
     columns: dict = field(default_factory=lambda: {
-        "body": "A",
-        "reply": "B",
+        "label": "A",
+        "text": "B",
     })
-    header_row: int = 1
-    data_start_row: int = 2
+    data_start_row: int = 1
 
 
 @dataclass
 class DestSheetConfig:
-    """自動投稿用スプレッドシート（転記先）の設定。"""
+    """自動投稿用スプレッドシート（転記先）の設定。
+
+    構成: A列=ツリー型(番号), B列=ポスト文
+    2行で1セット（本文行 + リプ行）。同じツリー型番号でグループ化。
+    """
 
     spreadsheet_id: str = ""
-    sheet_name: str = "Sheet1"
+    sheet_name: str = "自動投稿"
     columns: dict = field(default_factory=lambda: {
-        "body": "A",
-        "reply": "B",
-        "status": "C",
-        "created_at": "D",
+        "tree_type": "A",
+        "post_text": "B",
     })
-    header_row: int = 1
-    data_start_row: int = 2
+    header_row: int = 4
+    data_start_row: int = 5
 
 
 @dataclass
@@ -52,7 +57,7 @@ class ClaudeConfig:
 
     api_key: str = ""
     model: str = "claude-sonnet-4-20250514"
-    max_tokens: int = 1024
+    max_tokens: int = 4096
     temperature: float = 0.8
 
 
@@ -77,16 +82,6 @@ class AppConfig:
     google_service_account_file: str = "credentials/service_account.json"
 
 
-def _deep_update(base: dict, override: dict) -> dict:
-    """ネストされた辞書を再帰的にマージする。"""
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            base[key] = _deep_update(base[key], value)
-        else:
-            base[key] = value
-    return base
-
-
 def load_config(config_path: Path | None = None) -> AppConfig:
     """config.yaml と環境変数から設定を読み込む。"""
     path = config_path or CONFIG_PATH
@@ -101,21 +96,26 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     # --- source_sheet ---
     src = raw.get("source_sheet", {})
     config.source_sheet = SourceSheetConfig(
-        spreadsheet_id=os.getenv("SOURCE_SPREADSHEET_ID", src.get("spreadsheet_id", "")),
-        sheet_name=src.get("sheet_name", "Sheet1"),
+        spreadsheet_id=os.getenv(
+            "SOURCE_SPREADSHEET_ID",
+            src.get("spreadsheet_id", ""),
+        ),
+        sheet_name=src.get("sheet_name", "名言シート"),
         columns=src.get("columns", config.source_sheet.columns),
-        header_row=src.get("header_row", 1),
-        data_start_row=src.get("data_start_row", 2),
+        data_start_row=src.get("data_start_row", 1),
     )
 
     # --- dest_sheet ---
     dst = raw.get("dest_sheet", {})
     config.dest_sheet = DestSheetConfig(
-        spreadsheet_id=os.getenv("DEST_SPREADSHEET_ID", dst.get("spreadsheet_id", "")),
-        sheet_name=dst.get("sheet_name", "Sheet1"),
+        spreadsheet_id=os.getenv(
+            "DEST_SPREADSHEET_ID",
+            dst.get("spreadsheet_id", ""),
+        ),
+        sheet_name=dst.get("sheet_name", "自動投稿"),
         columns=dst.get("columns", config.dest_sheet.columns),
-        header_row=dst.get("header_row", 1),
-        data_start_row=dst.get("data_start_row", 2),
+        header_row=dst.get("header_row", 4),
+        data_start_row=dst.get("data_start_row", 5),
     )
 
     # --- claude ---
@@ -123,7 +123,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     config.claude = ClaudeConfig(
         api_key=os.getenv("ANTHROPIC_API_KEY", cl.get("api_key", "")),
         model=cl.get("model", "claude-sonnet-4-20250514"),
-        max_tokens=cl.get("max_tokens", 1024),
+        max_tokens=cl.get("max_tokens", 4096),
         temperature=cl.get("temperature", 0.8),
     )
 

@@ -1,12 +1,14 @@
 """Google Sheets 読み取りモジュール。
 
 参考用スプレッドシートから投稿データを読み込む。
-複数シート対応: シート名を指定して読み込み先を切り替え可能。
+構成: A列=種別(投稿1/リプ1), B列=テキスト → 2行で1投稿セット。
+複数シート対応: シート名を指定して投稿種類ごとに読み込み先を切り替え可能。
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 import gspread
@@ -23,12 +25,11 @@ SCOPES = [
 
 @dataclass
 class ReferencePost:
-    """参考用投稿データ。"""
+    """参考用投稿データ（本文 + リプライのペア）。"""
 
     body: str
     reply: str
-    row_number: int
-    extra: dict | None = None
+    post_number: int
 
 
 def _col_letter_to_index(letter: str) -> int:
@@ -48,16 +49,28 @@ def _get_client(config: AppConfig) -> gspread.Client:
     return gspread.authorize(creds)
 
 
+def _parse_label(label: str) -> tuple[str, int] | None:
+    """種別ラベルから種類と番号を抽出する。
+
+    例: "投稿1" → ("投稿", 1), "リプ3" → ("リプ", 3)
+    """
+    match = re.match(r"(投稿|リプ)\s*(\d+)", label.strip())
+    if not match:
+        return None
+    return match.group(1), int(match.group(2))
+
+
 def read_reference_posts(
     config: AppConfig,
     sheet_name: str | None = None,
 ) -> list[ReferencePost]:
     """参考用スプレッドシートから投稿データを読み込む。
 
+    A列の種別ラベル（投稿N / リプN）をもとに、同じ番号の投稿+リプをペアにする。
+
     Args:
         config: アプリケーション設定。
         sheet_name: 読み込むシート名。None の場合は設定のデフォルトを使用。
-                    将来的にシートごとに投稿種類を分ける場合に使用。
 
     Returns:
         参考用投稿のリスト。
@@ -71,39 +84,45 @@ def read_reference_posts(
 
     all_values = worksheet.get_all_values()
 
-    body_col = _col_letter_to_index(src_config.columns["body"])
-    reply_col = _col_letter_to_index(src_config.columns["reply"])
+    label_col = _col_letter_to_index(src_config.columns["label"])
+    text_col = _col_letter_to_index(src_config.columns["text"])
 
-    # 設定された列以外の追加列を検出
-    known_cols = {"body", "reply"}
-    extra_cols = {
-        k: _col_letter_to_index(v)
-        for k, v in src_config.columns.items()
-        if k not in known_cols
-    }
+    # 投稿番号ごとに本文とリプを蓄積
+    bodies: dict[int, str] = {}
+    replies: dict[int, str] = {}
 
-    posts: list[ReferencePost] = []
     for row_idx, row in enumerate(all_values):
-        row_number = row_idx + 1  # 1-indexed
+        row_number = row_idx + 1
         if row_number < src_config.data_start_row:
             continue
 
-        body = row[body_col].strip() if body_col < len(row) else ""
-        reply = row[reply_col].strip() if reply_col < len(row) else ""
+        label = row[label_col].strip() if label_col < len(row) else ""
+        text = row[text_col].strip() if text_col < len(row) else ""
 
-        if not body:
+        if not label or not text:
             continue
 
-        extra = {}
-        for col_name, col_idx in extra_cols.items():
-            extra[col_name] = row[col_idx].strip() if col_idx < len(row) else ""
+        parsed = _parse_label(label)
+        if not parsed:
+            logger.debug("行 %d: 不明なラベル '%s' をスキップ", row_number, label)
+            continue
 
-        posts.append(ReferencePost(
-            body=body,
-            reply=reply,
-            row_number=row_number,
-            extra=extra if extra else None,
-        ))
+        kind, num = parsed
+        if kind == "投稿":
+            bodies[num] = text
+        elif kind == "リプ":
+            replies[num] = text
+
+    # 番号順にペアを組み立て
+    all_numbers = sorted(set(bodies.keys()) | set(replies.keys()))
+    posts: list[ReferencePost] = []
+    for num in all_numbers:
+        body = bodies.get(num, "")
+        reply = replies.get(num, "")
+        if body:
+            posts.append(ReferencePost(body=body, reply=reply, post_number=num))
+        else:
+            logger.warning("投稿番号 %d: 本文がありません（リプのみ）。スキップします", num)
 
     logger.info("シート '%s' から %d 件の参考投稿を読み込みました", target_sheet, len(posts))
     return posts

@@ -1,6 +1,7 @@
 """Claude API を使った投稿生成モジュール。
 
 参考投稿のトーンや内容を分析し、新しいThreads投稿を自動生成する。
+ユーザーのプロジェクト設定に準拠した投稿ルールに従う。
 """
 
 from __future__ import annotations
@@ -17,31 +18,53 @@ from src.sheets_reader import ReferencePost
 logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_PROMPT = """\
-あなたはThreads（Meta社のSNS）の投稿を作成するプロのコピーライターです。
-ユーザーから提供される参考投稿を分析し、そのトーン・文体・テーマに沿った新しい投稿を作成してください。
+あなたはスレッズ（Threads）の投稿を作成する専門アシスタントです。
+ユーザーから提供される参考投稿を分析し、同じテイストで新しい投稿を作成してください。
 
-### ルール
-- Threadsの投稿は最大500文字です。簡潔かつインパクトのある文章を心がけてください。
-- 参考投稿にリプライ（連投）がある場合、同様にリプライ付きの投稿を作成してください。
-- リプライも最大500文字です。
-- 参考投稿の丸コピーは避け、同じテーマ・トーンで異なる切り口の投稿を作成してください。
-- 絵文字や改行は参考投稿のスタイルに合わせてください。
-- ハッシュタグは参考投稿で使われている場合のみ、同様に付けてください。
+# 投稿ルール
+
+## 構成
+- 必ず「本文」と「リプライ文」の2連投稿にする
+- 本文の最後は「なぜなら、」「その理由は、」「それは、」など、続きが気になる言葉で切る
+- リプライ文の最後にフォロー訴求を入れる
+
+## 文体・口調
+- 敬語で統一する（「〜です」「〜ますよ」）
+- 小学生でもわかるような簡単な言葉を使う
+- 1行目は読者の手が止まるようなフック（問いかけ、断言、共感など）にする
+- 冒頭に【】は使わない
+
+## 表現ルール
+- 「○○な人ほど」系の投稿では、スピリチュアルな特別感を出す
+  例：霊格が高い女性ほど / 魂の器が大きい人ほど / 器の大きい女性ほど / 魂の格が高い女性ほど / 魂のステージが高い人ほど
+- 固有名詞（人名・職業名・ブランド名）は出さない
+- 絵文字は🕊️✨のみ使用する（リプライ文のフォロー訴求付近に1回）
+
+## テーマの方向性
+- 40代女性の人生の転機・リセット
+- 疲れやすい人・繊細な人への肯定
+- 頑張らなくていい・無理しなくていい系のメッセージ
+- 自分を大切にする・自分が主役になる
+- 心が疲れた時の過ごし方
 """
 
 DEFAULT_USER_PROMPT_TEMPLATE = """\
 以下の参考投稿をもとに、新しいThreads投稿を{count}件作成してください。
+参考投稿のテイスト・トーン・構成を分析し、同じ雰囲気で異なる切り口の投稿を作ってください。
 
 ### 参考投稿
 {reference_posts}
 
 ### 出力形式
 以下のJSON配列形式で出力してください。他の説明文は不要です。
+本文は「なぜなら、」「その理由は、」「それは、」など続きが気になる言葉で終わらせてください。
+リプライ文の最後にはフォロー訴求（🕊️✨付き）を入れてください。
+
 ```json
 [
   {{
-    "body": "投稿本文",
-    "reply": "リプライ文（不要な場合は空文字）"
+    "body": "投稿本文（続きが気になる形で切る）",
+    "reply": "リプライ文（フォロー訴求で締める）"
   }}
 ]
 ```
@@ -60,9 +83,9 @@ def _format_reference_posts(posts: list[ReferencePost]) -> str:
     """参考投稿をプロンプト用にフォーマットする。"""
     parts = []
     for i, post in enumerate(posts, 1):
-        part = f"--- 参考投稿 {i} ---\n本文: {post.body}"
+        part = f"--- 参考投稿 {i} ---\n【本文】\n{post.body}"
         if post.reply:
-            part += f"\nリプライ: {post.reply}"
+            part += f"\n【リプライ】\n{post.reply}"
         parts.append(part)
     return "\n\n".join(parts)
 
@@ -91,11 +114,6 @@ def generate_posts(
     client = anthropic.Anthropic(api_key=config.claude.api_key)
 
     system_prompt = DEFAULT_SYSTEM_PROMPT
-    if config.generation.max_body_length != 500 or config.generation.max_reply_length != 500:
-        system_prompt += (
-            f"\n- 本文の最大文字数: {config.generation.max_body_length}文字"
-            f"\n- リプライの最大文字数: {config.generation.max_reply_length}文字"
-        )
 
     user_prompt_template = config.generation.prompt_template or DEFAULT_USER_PROMPT_TEMPLATE
     user_prompt = user_prompt_template.format(
@@ -124,7 +142,6 @@ def generate_posts(
 
 def _parse_response(response_text: str, expected_count: int) -> list[GeneratedPost]:
     """Claude API のレスポンスをパースして GeneratedPost のリストに変換する。"""
-    # JSON部分を抽出 (```json ... ``` で囲まれている場合に対応)
     text = response_text.strip()
     if "```json" in text:
         text = text.split("```json", 1)[1]

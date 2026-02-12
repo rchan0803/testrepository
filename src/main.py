@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 from src.config import load_config
 from src.post_generator import generate_posts
@@ -29,20 +30,20 @@ def main(args: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "-c", "--config",
-        help="設定ファイル (config.yaml) のパス。デフォルトはプロジェクトルートの config.yaml",
+        help="設定ファイル (config.yaml) のパス",
     )
     parser.add_argument(
         "-n", "--count",
         type=int,
-        help="生成する投稿数 (デフォルトは config.yaml の posts_per_run)",
+        help="生成する投稿数 (デフォルト: config.yaml の posts_per_run)",
     )
     parser.add_argument(
         "-s", "--sheet",
-        help="参考用スプレッドシートの読み込みシート名 (デフォルトは config.yaml の sheet_name)",
+        help="参考用スプレッドシートの読み込みシート名 (例: 名言シート)",
     )
     parser.add_argument(
         "--dest-sheet",
-        help="転記先スプレッドシートのシート名 (デフォルトは config.yaml の dest_sheet.sheet_name)",
+        help="転記先スプレッドシートのシート名 (例: 自動投稿)",
     )
     parser.add_argument(
         "--list-sheets",
@@ -58,7 +59,6 @@ def main(args: list[str] | None = None) -> int:
     parsed = parser.parse_args(args)
 
     # 設定読み込み
-    from pathlib import Path
     config_path = Path(parsed.config) if parsed.config else None
     config = load_config(config_path)
 
@@ -71,7 +71,7 @@ def main(args: list[str] | None = None) -> int:
         return 0
 
     # 1. 参考投稿の読み込み
-    logger.info("=== 参考投稿の読み込み ===")
+    logger.info("=== Step 1: 参考投稿の読み込み ===")
     reference_posts = read_reference_posts(config, sheet_name=parsed.sheet)
 
     if not reference_posts:
@@ -79,9 +79,16 @@ def main(args: list[str] | None = None) -> int:
         return 1
 
     logger.info("参考投稿: %d 件を読み込みました", len(reference_posts))
+    for post in reference_posts:
+        logger.info(
+            "  投稿%d: %s... / リプ: %s...",
+            post.post_number,
+            post.body[:30],
+            post.reply[:30] if post.reply else "(なし)",
+        )
 
     # 2. 投稿の生成
-    logger.info("=== 投稿の生成 ===")
+    logger.info("=== Step 2: Claude APIで投稿を生成 ===")
     generated = generate_posts(config, reference_posts, count=parsed.count)
 
     if not generated:
@@ -92,19 +99,22 @@ def main(args: list[str] | None = None) -> int:
 
     # 生成結果の表示
     for i, post in enumerate(generated, 1):
-        print(f"\n--- 生成投稿 {i} ---")
-        print(f"本文: {post.body}")
-        if post.reply:
-            print(f"リプライ: {post.reply}")
+        print(f"\n{'='*50}")
+        print(f"【投稿{i} 本文】")
+        print(post.body)
+        print(f"\n【投稿{i} リプ】")
+        print(post.reply)
+
+    print(f"\n{'='*50}")
 
     # 3. スプレッドシートへの転記
     if parsed.dry_run:
-        logger.info("=== ドライラン: 転記をスキップします ===")
+        logger.info("=== ドライラン: 転記をスキップしました ===")
         return 0
 
-    logger.info("=== スプレッドシートへの転記 ===")
+    logger.info("=== Step 3: スプレッドシートへの転記 ===")
     written = write_posts(config, generated, sheet_name=parsed.dest_sheet)
-    logger.info("転記完了: %d 件をスプレッドシートに書き込みました", written)
+    logger.info("転記完了: %d 件 (%d 行) をスプレッドシートに書き込みました", written, written * 2)
 
     return 0
 

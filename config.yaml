@@ -5,50 +5,48 @@
 # .env の値が優先されます。
 
 # --- 参考用スプレッドシート (読み込み元) ---
+# 構成: A列=種別(投稿1/リプ1), B列=テキスト → 2行で1投稿セット
 source_sheet:
-  # スプレッドシートID (URLの /d/ と /edit の間の文字列)
-  # .env の SOURCE_SPREADSHEET_ID でも設定可能
-  spreadsheet_id: ""
+  # スプレッドシートID
+  spreadsheet_id: "158dqDBXeqnI9eEmnqOvEc8weKLZnHF-u"
 
-  # 読み込むシート名 (将来的に投稿種類ごとにシートを分ける場合はここを変更)
-  sheet_name: "Sheet1"
+  # デフォルトで読み込むシート名
+  # 将来的に投稿種類ごとにシートを分ける場合、ここを変更するか --sheet オプションで指定
+  sheet_name: "名言シート"
 
-  # 列マッピング (アルファベットで列を指定)
+  # 列マッピング
   columns:
-    body: "A"      # 投稿本文
-    reply: "B"     # リプライ (連投) 文
+    label: "A"   # 種別 (投稿1, リプ1, 投稿2, リプ2, ...)
+    text: "B"    # テキスト本文
 
-  # ヘッダー行 (1-indexed)
-  header_row: 1
-
-  # データ開始行 (1-indexed, ヘッダーの次の行)
-  data_start_row: 2
+  # データ開始行 (1-indexed, ヘッダーなし)
+  data_start_row: 1
 
 # --- 自動投稿用スプレッドシート (転記先) ---
+# 構成: A列=ツリー型(番号), B列=ポスト文 → 本文行+リプ行の2行で1投稿セット
 dest_sheet:
   # スプレッドシートID
-  # .env の DEST_SPREADSHEET_ID でも設定可能
-  spreadsheet_id: ""
+  spreadsheet_id: "1BYy8BzhGvGNDQ6XUFlvOlT-KUuZsQOV6mQ0URTD8kDE"
 
   # 書き込み先シート名
-  sheet_name: "Sheet1"
+  sheet_name: "自動投稿"
 
-  # 列マッピング (アルファベットで列を指定)
-  # 実際の転記先スプシの列構成に合わせて変更してください
+  # 列マッピング
   columns:
-    body: "A"        # 投稿本文
-    reply: "B"       # リプライ文
-    status: "C"      # ステータス (自動で「未投稿」と記入)
-    created_at: "D"  # 生成日時
+    tree_type: "A"   # ツリー型 (番号: 同じ番号で本文+リプをグループ化)
+    post_text: "B"   # ポスト文
 
-  header_row: 1
-  data_start_row: 2
+  # ヘッダー行 (4行目がヘッダー)
+  header_row: 4
+
+  # データ開始行 (5行目からデータ)
+  data_start_row: 5
 
 # --- Claude API 設定 ---
 claude:
   # APIキーは .env の ANTHROPIC_API_KEY で設定してください
   model: "claude-sonnet-4-20250514"
-  max_tokens: 2048
+  max_tokens: 4096
   temperature: 0.8
 
 # --- 投稿生成設定 ---
@@ -67,6 +65,4 @@ generation:
   prompt_template: ""
 
 # --- Google認証 ---
-# サービスアカウントの認証情報JSONファイルのパス
-# .env の GOOGLE_SERVICE_ACCOUNT_FILE でも設定可能
 google_service_account_file: "credentials/service_account.json"
